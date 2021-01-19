@@ -1,0 +1,53 @@
+---
+title: 'COVID-19: Scraping Missouri Data'
+author: "Lyna Truong"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r eval=FALSE, warning=FALSE}
+library(rvest)
+library(dplyr)
+library(xlsx)
+#Specifying the url for desired website to be scraped
+url <- 'https://health.mo.gov/living/healthcondiseases/communicable/novel-coronavirus/results.php'
+
+#Reading the HTML code from the website
+webpage <- read_html(url)
+
+#Using CSS selectors to scrape the positive cases by country
+covid_missouri_tst_post <- webpage %>% 
+  html_nodes(xpath = '//*[@id="collapseOne"]/div/div/table') %>% 
+  html_table()
+
+covid_missouri_tst_post <- covid_missouri_tst_post[[1]]
+
+#Using CSS selectors to scrape deaths by country
+covid_missouri_mort <- webpage %>% 
+  html_nodes(xpath = '//*[@id="collapseDeaths"]/div/div/table') %>% 
+  html_table()
+
+covid_missouri_mort <- covid_missouri_mort[[1]]
+
+name_tst <- paste0('tstpos_',as.character.Date(format(Sys.Date(), format = "%m%d%y")))
+name_mort <- paste0('mort_',as.character(format(Sys.Date(), format = "%m%d%y")))
+
+#Master
+covid_missouri <- left_join(covid_missouri_tst_post, covid_missouri_mort, by = 'County') %>% 
+  select(County, starts_with("Total")) %>% 
+  replace(is.na(.), 0) %>% 
+  #For Missouri 
+  mutate(County = ifelse(County == 'Joplin', 'Jasper', County),
+         County = ifelse(County == 'TBD', 'Z-TBD', County),
+         County = ifelse(County == 'Kansas City', 'Jackson', County)) %>% group_by(County) %>%
+  summarise(Total = sum(Total), `Total Deaths` = sum(`Total Deaths`)) %>% ungroup() %>% 
+  add_row(County = 'Joplin', Total = NA, `Total Deaths` = NA) %>% 
+  rename(!!name_tst:= Total, !!name_mort:='Total Deaths') %>% 
+  arrange(County) %>% 
+  as.data.frame()
+
+write.xlsx(covid_missouri, file = 'Covid_Missouri_Data.xlsx', 
+           sheetName = as.character.Date(format(Sys.Date(), format = "%m%d%y")), 
+           showNA = FALSE, row.names = FALSE, append = TRUE)
+```
